@@ -1,5 +1,7 @@
-#include <cstdio>
+#include <vector>
 #include <algorithm>
+#include <cstring>
+
 #include <flint/flint.h>
 #include <flint/fmpz.h>
 #include <flint/fmpz_mod_polyxx.h>
@@ -7,95 +9,94 @@
 using namespace std;
 using namespace flint;
 
-// 2^160 - 47
-#define P "1461501637330902918203684832716283019655932542929"
-#define STR_FAIL "FAIL"
-#define STR_SUCC "SUCC"
+#define RET_INVALID           1
+#define RET_INTERNAL_ERROR  100
+#define RET_INPUT_ERROR     101
 
-int main(int argc, char* argv[])
-{
-    int n;
-
-    // Read length of vector
-    cin >> n;
+int solve_impl(vector<fmpzxx>& messages, const fmpzxx& p, const fmpzxx& my_message, const vector<fmpzxx>& sums) {
+    vector<fmpzxx>::size_type n = sums.size();
     if (n < 2) {
+#ifdef DEBUG
         cout << "Input vector too short." << endl;
-        return EXIT_FAILURE;
+#endif
+        return RET_INPUT_ERROR;
     }
 
-    // Prime, polynomial and factorization
-    fmpzxx p(P);
+    // Basic sanity check to avoid weird inputs
+    if (n > 1000) {
+#ifdef DEBUG
+        cout << "You probably do not want an input vector of more than 1000 elements. " << endl;
+#endif
+        return RET_INPUT_ERROR;
+    }
+
+    if (messages.size() != sums.size()) {
+#ifdef DEBUG
+        cout << "Output vector has wrong size." << endl;
+#endif
+        return RET_INPUT_ERROR;
+    }
+
     fmpz_mod_polyxx poly(p);
     fmpz_mod_poly_factorxx factors;
     factors.fit_length(n);
-
-    // Integer arrays
-    fmpzxx *s = new fmpzxx[n];
-    fmpzxx *coeff = new fmpzxx[n];
-    fmpzxx *inv = new fmpzxx[n];
-    fmpzxx *roots = new fmpzxx[n];
-
-    // Precompute inverses
-    for (int i = 0; i < n; i++) {
-        inv[i] = -(i+1);
-        inv[i] = inv[i].invmod(p);
-    }
-
-    // Read own message from stdin
-    fmpzxx m;
-    m.read();
-
-    // Read power sums from stdin
-    for (int i = 0; i < n; i++) {
-        s[i].read();
-        coeff[i] = s[i];
-    }
+    vector<fmpzxx> coeff(n);
 
     // Set lead coefficient
     poly.set_coeff(n, 1);
 
+    fmpzxx inv;
     // Compute other coeffients
-    for (int i = 0; i < n; i++) {
-        int k = 0;
-        for (int j = i-1; j >= 0; j--) {
-            coeff[i] += coeff[k] * s[j];
+    for (vector<fmpzxx>::size_type i = 0; i < n; i++) {
+        coeff[i] = sums[i];
+
+        vector<fmpzxx>::size_type k = 0;
+        // for j = i-1, ..., 0
+        for (vector<fmpzxx>::size_type j = i; j-- > 0 ;) {
+            coeff[i] += coeff[k] * sums[j];
             k++;
         }
-        coeff[i] *= inv[i];
-        poly.set_coeff(n-i-1, coeff[i]);
+        inv = i;
+        inv = -(inv + 1u);
+        inv = inv.invmod(p);
+        coeff[i] *= inv;
+        poly.set_coeff(n - i - 1, coeff[i]);
     }
 
 #ifdef DEBUG
-    cout << "Polynomial: "; print(poly); cout << endl;
+    cout << "Polynomial: " << endl; print(poly); cout << endl << endl;
 #endif
 
     // Check if our message is a root
-    if (poly(m) != 0) {
-        cout << STR_FAIL << " ";
+    if (poly(my_message) != 0) {
+#ifdef DEBUG
         cout << "Message missing." << endl;
-        return 0;
+#endif
+        return RET_INVALID;
     }
 
     // Factor
     factors.set_factor_kaltofen_shoup(poly);
 
 #ifdef DEBUG
-    cout << "Factors: "; print(factors); cout << endl;
+    cout << "Factors: " << endl; print(factors); cout << endl << endl;
 #endif
 
-    int n_roots = 0;
+    vector<fmpzxx>::size_type n_roots = 0;
     for (int i = 0; i < factors.size(); i++) {
         if (factors.p(i).degree() != 1 || factors.p(i).lead() != 1) {
-            cout << STR_FAIL << " ";
+#ifdef DEBUG
             cout << "Non-monic factor." << endl;
-            return 0;
+#endif
+            return RET_INVALID;
         }
         n_roots += factors.exp(i);
     }
     if (n_roots != n) {
-        cout << STR_FAIL << " ";
-        cout << "Not enough roots" << endl;
-        return 0;
+#ifdef DEBUG
+        cout << "Not enough roots." << endl;
+#endif
+        return RET_INVALID;
     }
 
     // Extract roots
@@ -103,26 +104,128 @@ int main(int argc, char* argv[])
     bool found = false;
     for (int i = 0; i < factors.size(); i++) {
         for (int j = 0; j < factors.exp(i); j++) {
-            roots[k] = factors.p(i).get_coeff(0).negmod(p);
-            found |= roots[k] == m;
+            messages[k] = factors.p(i).get_coeff(0).negmod(p);
+            found |= messages[k] == my_message;
             k++;
         }
     }
 
     // Sanity check
     if (!found) {
+#ifdef DEBUG
         cout << "Bug: Our message is a root but not in list of roots." << endl;
-        return EXIT_FAILURE;
+#endif
+        return RET_INTERNAL_ERROR;
     }
 
-    sort(roots, roots + n);
-
-    cout << STR_SUCC << " ";
-    for (int i = 0; i < n; i++) {
-        cout << roots[i] << " ";
-    }
-    cout << endl;
+    sort(messages.begin(), messages.end());
 
     return 0;
+}
+
+int main(int argc, char* argv[])
+{
+    fmpzxx p;
+    p.read();
+
+    vector<fmpzxx>::size_type n;
+    cin >> n;
+
+    if (p <= n) {
+        cout << "p must be (way) larger than n." << endl;
+        return RET_INTERNAL_ERROR;
+    }
+
+    vector<fmpzxx> s(n);
+    vector<fmpzxx> messages(n);
+
+    fmpzxx m;
+    m.read();
+
+    for (vector<fmpzxx>::iterator it = s.begin(); it != s.end(); it++) {
+        it->read();
+    }
+
+    int ret = solve_impl(messages, p, m, s);
+
+    if (ret == 0) {
+        cout << "Messages:" << endl << "[";
+        for (vector<fmpzxx>::iterator it = messages.begin(); it != messages.end(); it++) {
+            cout << *it << ", ";
+        }
+        cout << "]" << endl;
+    }
+
+    return ret;
+}
+
+/**
+ * Solve function from protocol specification.
+ *
+ * Solves the equation system
+ *   forall 0 <= i < n. sum_{j=0}^{n-1} messages[j]^{i+1} = sums[i]
+ * in the finite prime field F_p for messages[], and checks if my_message is a solution.
+ *
+ * \param[out] out_messages    Array of n char buffers (allocated by caller) of length at least strlen(prime) + 1
+ * \param[in]  prime           Prime of the finite field (not checked for primality)
+ * \param[in]  my_message      Our own message
+ * \param[in]  sums            Array of n power sums
+ * \param[in]  n               Number of peers
+ *
+ * \retval 0                   Success, the outputs are stored as hexadecimal strings in messages[].
+ * \retval RET_INVALID         The system is not properly solvable or my_message is not a solution.
+ * \retval RET_INPUT_ERROR     Illegal input values.
+ * \retval RET_INTERNAL_ERROR  An internal error occured.
+ */
+extern "C" int solve(char* out_messages[], const char* prime, const char* my_message, const char* sums[], size_t n) {
+    // Exceptions should never propagate to C (undefined behavior).
+    try {
+        fmpzxx p;
+        fmpzxx m;
+
+        vector<fmpzxx> s(n);
+        vector<fmpzxx> messages(n);
+
+        // operator= is hard-coded to base 10 and does not check for errors
+        if (fmpz_set_str(p._fmpz(), prime, 16)) {
+            return RET_INPUT_ERROR;
+        }
+
+        if (p <= n) {
+            return RET_INPUT_ERROR;
+        }
+
+        if (fmpz_set_str(m._fmpz(), my_message, 16)) {
+            return RET_INPUT_ERROR;
+        }
+
+        for (size_t i = 0; i < n; i++) {
+            if (fmpz_set_str(s[i]._fmpz(), sums[i], 16)) {
+                return RET_INPUT_ERROR;
+            }
+        }
+
+        for (size_t i = 0; i < n; i++) {
+            if (out_messages[i] == NULL) {
+                return RET_INPUT_ERROR;
+            }
+        }
+
+        int ret = solve_impl(messages, p, m, s);
+
+        if (ret == 0) {
+            for (size_t i = 0; i < n; i++) {
+                // Impossible
+                if (messages[i].sizeinbase(16) > strlen(prime)) {
+                    return RET_INTERNAL_ERROR;
+                }
+                fmpz_get_str(out_messages[i], 16, messages[i]._fmpz());
+            }
+        }
+
+        return ret;
+    } catch (...) {
+        return RET_INTERNAL_ERROR;
+    }
 }
 
