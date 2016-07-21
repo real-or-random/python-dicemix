@@ -90,6 +90,9 @@ ENV/
 # Rope project settings
 .ropeproject
 
+# cffi python extensions:
+_*.c
+_*.cpp
 
 ### C++
 
