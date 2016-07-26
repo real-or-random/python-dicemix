@@ -37,6 +37,13 @@ int solve_impl(vector<fmpzxx>& messages, const fmpzxx& p, const fmpzxx& my_messa
         return RET_INPUT_ERROR;
     }
 
+    if (p <= n) {
+#ifdef DEBUG
+        cout << "Prime must be (way) larger than the size of the input vector." << endl;
+#endif
+        return RET_INPUT_ERROR;
+    }
+
     fmpz_mod_polyxx poly(p);
     fmpz_mod_poly_factorxx factors;
     factors.fit_length(n);
@@ -131,11 +138,6 @@ int main(int argc, char* argv[])
     vector<fmpzxx>::size_type n;
     cin >> n;
 
-    if (p <= n) {
-        cout << "p must be (way) larger than n." << endl;
-        return RET_INTERNAL_ERROR;
-    }
-
     vector<fmpzxx> s(n);
     vector<fmpzxx> messages(n);
 
@@ -188,10 +190,6 @@ extern "C" int solve(char* out_messages[], const char* prime, const char* my_mes
 
         // operator= is hard-coded to base 10 and does not check for errors
         if (fmpz_set_str(p._fmpz(), prime, 16)) {
-            return RET_INPUT_ERROR;
-        }
-
-        if (p <= n) {
             return RET_INPUT_ERROR;
         }
 
